@@ -1,0 +1,155 @@
+package com.example.memorableplaces;
+
+import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+import androidx.fragment.app.FragmentActivity;
+import android.Manifest;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.location.Address;
+import android.location.Geocoder;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
+import android.os.Bundle;
+import android.widget.Toast;
+import com.google.android.gms.maps.CameraUpdateFactory;
+import com.google.android.gms.maps.GoogleMap;
+import com.google.android.gms.maps.OnMapReadyCallback;
+import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.MarkerOptions;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.Locale;
+
+public class MapsActivity extends FragmentActivity implements OnMapReadyCallback,GoogleMap.OnMapLongClickListener {
+
+    private GoogleMap mMap;
+    LocationManager locationManager;
+    LocationListener listener;
+
+    public void centerMapOnLocation(Location loc,String title){
+        mMap.clear();
+        LatLng user;
+        if(loc!=null) {
+            user = new LatLng(loc.getLatitude(), loc.getLongitude());
+            mMap.addMarker(new MarkerOptions().position(user).title(title));
+            mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(user, 14));
+        }
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_maps);
+        SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.map);
+        mapFragment.getMapAsync(this);
+    }
+
+    @Override
+    public void onMapReady(GoogleMap googleMap) {
+        mMap = googleMap;
+        mMap.setOnMapLongClickListener(this);
+        Intent intent=getIntent();
+        if(intent.getIntExtra("Place",-1)==-1){
+            locationManager= (LocationManager) this.getSystemService(LOCATION_SERVICE);
+            listener=new LocationListener() {
+                @Override
+                public void onLocationChanged(Location location) {
+                   centerMapOnLocation(location,"Your location");
+                }
+
+                @Override
+                public void onStatusChanged(String provider, int status, Bundle extras) {
+
+                }
+
+                @Override
+                public void onProviderEnabled(String provider) {
+
+                }
+
+                @Override
+                public void onProviderDisabled(String provider) {
+
+                }
+            };
+            if(ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)!= PackageManager.PERMISSION_GRANTED)
+                ActivityCompat.requestPermissions(this,new String[]{Manifest.permission.ACCESS_FINE_LOCATION},1);
+            else {
+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER,1000,100,listener);
+                Location last=locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+                centerMapOnLocation(last,"Your location");
+            }
+        }
+        else{
+            int i=intent.getIntExtra("Place",0);
+            LatLng place=MainActivity.locations.get(i);
+            Location location=new Location(locationManager.GPS_PROVIDER);
+            location.setLatitude(place.latitude);
+            location.setLongitude(place.longitude);
+            centerMapOnLocation(location,MainActivity.places.get(i));
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if(requestCode==1 && grantResults[0]==PackageManager.PERMISSION_GRANTED){
+            if(ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)== PackageManager.PERMISSION_GRANTED) {
+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 100, listener);
+                Location last=locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+                centerMapOnLocation(last,"Your location");
+            }
+        }
+    }
+
+    @Override
+    public void onMapLongClick(LatLng latLng) {
+        Geocoder geocoder=new Geocoder(getApplicationContext(), Locale.getDefault());
+        String address="";
+        try {
+            List<Address> listAddress=geocoder.getFromLocation(latLng.latitude,latLng.longitude,1);
+            if(listAddress!=null){
+                if(listAddress.get(0).getThoroughfare()!=null) {
+                    if (listAddress.get(0).getSubThoroughfare() != null)
+                        address += listAddress.get(0).getSubThoroughfare() + " ";
+                    address += listAddress.get(0).getThoroughfare()+" ";
+                }
+                if(listAddress.get(0).getLocality()!=null)
+                    address+=listAddress.get(0).getLocality();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        if(address==""){
+            SimpleDateFormat sdf=new SimpleDateFormat("HH:mm yyyy-MM-dd");
+            address+=sdf.format(new Date());
+        }
+        mMap.addMarker(new MarkerOptions().position(latLng).title(address));
+        MainActivity.places.add(address);
+        MainActivity.locations.add(latLng);
+        MainActivity.adapter.notifyDataSetChanged();
+        SharedPreferences sharedPreferences=this.getSharedPreferences("com.example.memorableplaces", Context.MODE_PRIVATE);
+        try {
+            ArrayList<String> lat=new ArrayList<String>();
+            ArrayList<String> lon=new ArrayList<String>();
+            for(LatLng coord:MainActivity.locations){
+                lat.add(Double.toString(coord.latitude));
+                lon.add(Double.toString(coord.longitude));
+            }
+            sharedPreferences.edit().putString("places",ObjectSerializer.serialize(MainActivity.places)).apply();
+            sharedPreferences.edit().putString("latitudes",ObjectSerializer.serialize(lat)).apply();
+            sharedPreferences.edit().putString("longitudes",ObjectSerializer.serialize(lon)).apply();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        Toast.makeText(this,"Location saved!",Toast.LENGTH_SHORT).show();
+    }
+}
